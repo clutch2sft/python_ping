@@ -7,6 +7,7 @@ from tkinter import Tk, Text, Scrollbar, END, BOTH, RIGHT, Y, Frame, Label, Butt
 import queue
 import signal
 import sys
+import platform
 
 # Directory setup
 CONFIG_DIR = 'config'
@@ -39,32 +40,44 @@ def log_ping(ip, log_queue, start_time):
     with open(log_file, 'a') as file:
         while running:
             timestamp_sent = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
-            process = subprocess.Popen(['ping', '-n', '1', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            stdout, stderr = process.communicate()
-            timestamp_received = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
 
-            if process.returncode == 0:
-                stdout = stdout.decode('utf-8')
-                # Extract time from ping response
-                ms = None
-                for line in stdout.split('\n'):
-                    if 'time=' in line:
-                        ms = line.split('time=')[1].split('ms')[0].strip()
-                        break
-                    elif 'time<' in line:
-                        ms = line.split('time<')[1].split('ms')[0].strip()
-                        ms = f'<{ms}'
-                        break
-                
-                if ms is not None:
-                    logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} successful, Time: {ms}ms\n'
-                    termmessage = f'Ping {ip} success, {ms}ms\n'
-                else:
-                    logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} successful, Time: Unknown\n'
-                    termmessage = f'Ping {ip} success Unknown ms\n'
+            # Determine the correct ping command based on the platform
+            if platform.system().lower() == 'windows':
+                process = subprocess.Popen(['ping', '-n', '1', '-w', '200', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             else:
-                logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} failed\n'
-                termmessage = f'Ping {ip} failed\n'
+                process = subprocess.Popen(['ping', '-c', '1', '-W', '1', ip], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            try:
+                stdout, stderr = process.communicate(timeout=0.2)
+                timestamp_received = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+
+                if process.returncode == 0:
+                    stdout = stdout.decode('utf-8')
+                    # Extract time from ping response
+                    ms = None
+                    for line in stdout.split('\n'):
+                        if 'time=' in line:
+                            ms = line.split('time=')[1].split('ms')[0].strip()
+                            break
+                        elif 'time<' in line:
+                            ms = line.split('time<')[1].split('ms')[0].strip()
+                            ms = f'<{ms}'
+                            break
+                    
+                    if ms is not None:
+                        logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} successful, Time: {ms}ms\n'
+                        termmessage = f'Ping {ip} success, {ms}ms\n'
+                    else:
+                        logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} successful, Time: Unknown\n'
+                        termmessage = f'Ping {ip} success Unknown ms\n'
+                else:
+                    logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} failed\n'
+                    termmessage = f'Ping {ip} failed\n'
+
+            except subprocess.TimeoutExpired:
+                timestamp_received = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                logmessage = f'{timestamp_sent} - {timestamp_received}: Ping to {ip} timed out\n'
+                termmessage = f'Ping {ip} timeout\n'
 
             file.write(logmessage)
             file.flush()  # Ensure the message is written immediately
